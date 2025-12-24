@@ -1,5 +1,9 @@
 flask
 wfdb
 numpy
-torch
 scipy
+requests
+
+# CPU-only PyTorch (very important)
+torch==2.2.2+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
