@@ -13,10 +13,10 @@ from cloud_features import extract_edge_features
 
 # ---------------- Globals ---------------- #
 
-# Cache to avoid repeated MIT-BIH downloads
+# Cache for preloaded ECG records
 RECORD_CACHE = {}
 
-# Limit inference workload per request (CRITICAL for Render)
+# Limit inference workload per request
 MAX_WINDOWS = 10
 
 app = Flask(__name__)
@@ -26,9 +26,18 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "cloud_transformer_mitbih.pth")
 
+print("🔄 Loading Transformer model...")
 model = ECGTransformer(seq_len=WINDOW_SAMPLES)
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
+print("✅ Model loaded")
+
+# ---------------- PRELOAD ECG DATA ---------------- #
+
+print("🔄 Preloading MIT-BIH ECG record 100...")
+ecg, ann_samples, ann_symbols = load_record("100")
+RECORD_CACHE["100"] = (ecg, ann_samples, ann_symbols)
+print("✅ ECG preload complete")
 
 # ---------------- Routes ---------------- #
 
@@ -38,7 +47,6 @@ def home():
 
 @app.route("/health", methods=["GET"])
 def health():
-    # Lightweight endpoint for warming Render
     return {"status": "ok"}, 200
 
 @app.route("/analyze", methods=["POST"])
@@ -52,26 +60,17 @@ def analyze():
             "message": "record_id is required"
         }), 400
 
-    # -------- Load & cache record -------- #
-    if record_id in RECORD_CACHE:
-        ecg, ann_samples, ann_symbols = RECORD_CACHE[record_id]
-    else:
-        ecg, ann_samples, ann_symbols = load_record(record_id)
-        RECORD_CACHE[record_id] = (ecg, ann_samples, ann_symbols)
-
-    # -------- Windowing -------- #
-    windows, _ = generate_windows(ecg, ann_samples, ann_symbols)
-
-    if len(windows) == 0:
+    if record_id not in RECORD_CACHE:
         return jsonify({
             "status": "error",
-            "message": "No valid ECG windows generated"
+            "message": f"Record {record_id} not preloaded"
         }), 400
 
-    # -------- Limit workload -------- #
+    ecg, ann_samples, ann_symbols = RECORD_CACHE[record_id]
+
+    windows, _ = generate_windows(ecg, ann_samples, ann_symbols)
     windows = windows[:MAX_WINDOWS]
 
-    # -------- Inference -------- #
     probs = []
     for w in windows:
         t = torch.tensor(w, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
