@@ -4,6 +4,6 @@ numpy
 scipy
 requests
 
-# CPU-only PyTorch (very important)
-torch==2.2.2+cpu
+# CPU-only PyTorch (Python 3.10 compatible)
+torch==2.5.1+cpu
 --extra-index-url https://download.pytorch.org/whl/cpu
