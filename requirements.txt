@@ -3,6 +3,7 @@ wfdb
 numpy
 scipy
 requests
+flask-cors
 
 # CPU-only PyTorch (Python 3.10 compatible)
 torch==2.5.1+cpu

@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify
 import torch
 import numpy as np
 import os
+from flask_cors import CORS
 
 from cloud_config import WINDOW_SAMPLES, RISK_THRESHOLD
 from cloud_transformer import ECGTransformer
@@ -12,6 +13,7 @@ from cloud_windowing import generate_windows
 from cloud_features import extract_edge_features
 
 app = Flask(__name__)
+CORS(app) 
 
 # ---------------- Globals ---------------- #
 
