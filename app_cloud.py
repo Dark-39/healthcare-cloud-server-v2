@@ -20,6 +20,7 @@ CORS(app)
 
 MAX_WINDOWS = 10
 CACHED_RESULT = None
+CLOUD_INFERENCE_TIME_MS = 0.0
 
 # Reported (offline evaluated) cloud model accuracy
 CLOUD_MODEL_ACCURACY = 0.92  # 92%
@@ -38,6 +39,8 @@ print("Model loaded")
 # ---------------- Precompute inference at startup ---------------- #
 
 print("Loading ECG record 100...")
+start_inf = time.time()
+
 ecg, ann_samples, ann_symbols = load_record("100")
 
 print("Generating windows...")
@@ -51,6 +54,8 @@ for w in windows:
     with torch.no_grad():
         probs.append(model(t).item())
 
+CLOUD_INFERENCE_TIME_MS = (time.time() - start_inf) * 1000
+
 avg_prob = float(np.mean(probs))
 risk = "high" if avg_prob >= RISK_THRESHOLD else "low"
 
@@ -62,7 +67,7 @@ CACHED_RESULT = {
     "edge_features": extract_edge_features(windows[0])
 }
 
-print("Startup inference complete")
+print(f"Startup inference complete ({CLOUD_INFERENCE_TIME_MS:.2f} ms)")
 
 # ---------------- Routes ---------------- #
 
@@ -76,10 +81,16 @@ def health():
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    start_time = time.time()
+    api_start = time.time()
 
     response = dict(CACHED_RESULT)  # do NOT mutate cached object
-    response["latency_ms"] = round((time.time() - start_time) * 1000, 2)
+
+    api_latency_ms = (time.time() - api_start) * 1000
+    total_time_ms = CLOUD_INFERENCE_TIME_MS + api_latency_ms
+
+    response["inference_time_ms"] = round(CLOUD_INFERENCE_TIME_MS, 2)
+    response["api_latency_ms"] = round(api_latency_ms, 2)
+    response["total_time_ms"] = round(total_time_ms, 2)
     response["model_accuracy"] = CLOUD_MODEL_ACCURACY
 
     return jsonify(response), 200
