@@ -46,12 +46,11 @@ windows = windows[:MAX_WINDOWS]
 
 print("Running inference once...")
 
-# ✅ START TIMER HERE (FIX)
-start_inf = time.time()
-
-
-CLOUD_INFERENCE_TIME_MS = (time.time() - start_inf) * 1000
-# ✅ END TIMER HERE
+probs = []
+for w in windows:
+    t = torch.tensor(w, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+    with torch.no_grad():
+        probs.append(model(t).item())
 
 avg_prob = float(np.mean(probs))
 risk = "high" if avg_prob >= RISK_THRESHOLD else "low"
@@ -64,6 +63,8 @@ CACHED_RESULT = {
     "edge_features": extract_edge_features(windows[0])
 }
 
+# ---------------- Measure pure inference time ---------------- #
+
 print("Measuring pure model inference time...")
 
 dummy_input = torch.randn(1, WINDOW_SAMPLES, 1)
@@ -74,8 +75,6 @@ with torch.no_grad():
 CLOUD_INFERENCE_TIME_MS = (time.time() - t0) * 1000
 
 print(f"Pure inference time: {CLOUD_INFERENCE_TIME_MS:.2f} ms")
-
-print(f"Startup inference complete ({CLOUD_INFERENCE_TIME_MS:.2f} ms)")
 
 # ---------------- Routes ---------------- #
 
