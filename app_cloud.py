@@ -22,8 +22,7 @@ MAX_WINDOWS = 10
 CACHED_RESULT = None
 CLOUD_INFERENCE_TIME_MS = 0.0
 
-# Reported (offline evaluated) cloud model accuracy
-CLOUD_MODEL_ACCURACY = 0.92  # 92%
+CLOUD_MODEL_ACCURACY = 0.92  # reported accuracy
 
 # ---------------- Model loading ---------------- #
 
@@ -39,8 +38,6 @@ print("Model loaded")
 # ---------------- Precompute inference at startup ---------------- #
 
 print("Loading ECG record 100...")
-start_inf = time.time()
-
 ecg, ann_samples, ann_symbols = load_record("100")
 
 print("Generating windows...")
@@ -48,6 +45,10 @@ windows, _ = generate_windows(ecg, ann_samples, ann_symbols)
 windows = windows[:MAX_WINDOWS]
 
 print("Running inference once...")
+
+# ✅ START TIMER HERE (FIX)
+start_inf = time.time()
+
 probs = []
 for w in windows:
     t = torch.tensor(w, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
@@ -55,6 +56,7 @@ for w in windows:
         probs.append(model(t).item())
 
 CLOUD_INFERENCE_TIME_MS = (time.time() - start_inf) * 1000
+# ✅ END TIMER HERE
 
 avg_prob = float(np.mean(probs))
 risk = "high" if avg_prob >= RISK_THRESHOLD else "low"
@@ -83,7 +85,7 @@ def health():
 def analyze():
     api_start = time.time()
 
-    response = dict(CACHED_RESULT)  # do NOT mutate cached object
+    response = dict(CACHED_RESULT)
 
     api_latency_ms = (time.time() - api_start) * 1000
     total_time_ms = CLOUD_INFERENCE_TIME_MS + api_latency_ms
