@@ -13,68 +13,39 @@ from cloud_mitbih_loader import load_record
 from cloud_windowing import generate_windows
 from cloud_features import extract_edge_features
 
+# ---------------- App ---------------- #
+
 app = Flask(__name__)
 CORS(app)
 
-# ---------------- Globals ---------------- #
+# ---------------- Constants ---------------- #
 
 MAX_WINDOWS = 10
-CACHED_RESULT = None
-CLOUD_INFERENCE_TIME_MS = 0.0
-
-CLOUD_MODEL_ACCURACY = 0.92  # reported accuracy
+CLOUD_MODEL_ACCURACY = 0.92  # offline evaluated accuracy (reported)
 
 # ---------------- Model loading ---------------- #
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "cloud_transformer_mitbih.pth")
 
-print("Loading model...")
+print("Loading cloud Transformer model...")
 model = ECGTransformer(seq_len=WINDOW_SAMPLES)
 model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
 model.eval()
 print("Model loaded")
 
-# ---------------- Precompute inference at startup ---------------- #
+# ---------------- Preload data (for demo + UI) ---------------- #
 
 print("Loading ECG record 100...")
 ecg, ann_samples, ann_symbols = load_record("100")
 
 print("Generating windows...")
-windows, _ = generate_windows(ecg, ann_samples, ann_symbols)
-windows = windows[:MAX_WINDOWS]
+WINDOWS, _ = generate_windows(ecg, ann_samples, ann_symbols)
+WINDOWS = WINDOWS[:MAX_WINDOWS]
 
-print("Running inference once...")
+EDGE_FEATURES_SAMPLE = extract_edge_features(WINDOWS[0])
 
-probs = []
-for w in windows:
-    t = torch.tensor(w, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
-    with torch.no_grad():
-        probs.append(model(t).item())
-
-avg_prob = float(np.mean(probs))
-risk = "high" if avg_prob >= RISK_THRESHOLD else "low"
-
-CACHED_RESULT = {
-    "status": "success",
-    "risk_level": risk,
-    "confidence": round(avg_prob, 4),
-    "windows_used": len(windows),
-    "edge_features": extract_edge_features(windows[0])
-}
-
-# ---------------- Measure pure inference time ---------------- #
-
-print("Measuring pure model inference time...")
-
-dummy_input = torch.randn(1, WINDOW_SAMPLES, 1)
-
-t0 = time.time()
-with torch.no_grad():
-    _ = model(dummy_input)
-CLOUD_INFERENCE_TIME_MS = (time.time() - t0) * 1000
-
-print(f"Pure inference time: {CLOUD_INFERENCE_TIME_MS:.2f} ms")
+print("Cloud server ready")
 
 # ---------------- Routes ---------------- #
 
@@ -88,17 +59,43 @@ def health():
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    api_start = time.time()
+    """
+    Cached demo-style endpoint:
+    - Measures REAL inference time
+    - Returns aggregate decision
+    """
 
-    response = dict(CACHED_RESULT)
+    api_start = time.perf_counter()
+    infer_start = time.perf_counter()
 
-    api_latency_ms = (time.time() - api_start) * 1000
-    total_time_ms = CLOUD_INFERENCE_TIME_MS + api_latency_ms
+    probs = []
+    for w in WINDOWS:
+        t = torch.tensor(w, dtype=torch.float32).unsqueeze(0).unsqueeze(-1)
+        with torch.no_grad():
+            probs.append(model(t).item())
 
-    response["inference_time_ms"] = round(CLOUD_INFERENCE_TIME_MS, 2)
-    response["api_latency_ms"] = round(api_latency_ms, 2)
-    response["total_time_ms"] = round(total_time_ms, 2)
-    response["model_accuracy"] = CLOUD_MODEL_ACCURACY
+    inference_time_ms = (time.perf_counter() - infer_start) * 1000
+
+    avg_prob = float(np.mean(probs))
+    risk = "high" if avg_prob >= RISK_THRESHOLD else "low"
+
+    api_latency_ms = (time.perf_counter() - api_start) * 1000
+
+    response = {
+        "status": "success",
+        "risk_level": risk,
+        "confidence": round(avg_prob, 4),
+        "windows_used": len(WINDOWS),
+        "edge_features": EDGE_FEATURES_SAMPLE,
+
+        # timing
+        "inference_time_ms": round(inference_time_ms, 2),
+        "api_latency_ms": round(api_latency_ms - inference_time_ms, 2),
+        "total_time_ms": round(api_latency_ms, 2),
+
+        # reported accuracy
+        "model_accuracy": CLOUD_MODEL_ACCURACY
+    }
 
     return jsonify(response), 200
 
